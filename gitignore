@@ -1,0 +1,36 @@
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# --- This project's runtime data ---
+# Uploaded PDFs saved by main.py (UPLOAD_DIR = ../uploads relative to main.py)
+uploads/
+
+# Old/duplicate pipeline copies — the exact bug that caused main.py to
+# silently import a stale rag_pipeline.py earlier in this project.
+prev/
+
+# --- Editor / OS cruft ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Logs ---
+*.log
