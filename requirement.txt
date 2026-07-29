@@ -1,0 +1,22 @@
+# --- Web server / API ---
+fastapi
+uvicorn[standard]
+python-multipart      # required by FastAPI for UploadFile/File(...) form parsing
+python-dotenv
+pydantic
+
+# --- LangChain core + integrations (rag_pipeline.py) ---
+langchain-core
+langchain-classic      # ContextualCompressionRetriever now lives here (langchain v1.x split)
+langchain-community    # PyPDFLoader
+langchain-text-splitters
+langchain-mistralai    # ChatMistralAI, MistralAIEmbeddings
+langchain-cohere       # CohereRerank
+langchain-qdrant       # QdrantVectorStore, RetrievalMode, FastEmbedSparse
+
+# --- Vector store / embeddings backends ---
+qdrant-client
+fastembed              # backs FastEmbedSparse (BM25 sparse embeddings)
+
+# --- PDF parsing (used internally by PyPDFLoader) ---
+pypdf

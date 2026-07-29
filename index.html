@@ -1,0 +1,1840 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Docent · Talk to any PDF</title>
+<meta name="description" content="RAG-powered PDF chat. Upload a document, ask anything." />
+
+<!-- ============================================================
+  DOCENT — Premium RAG PDF Chatbot Frontend
+  ------------------------------------------------------------
+  This is a self-contained redesign of the frontend layer only.
+  No backend exists in this environment, so every network call
+  is wrapped in tryApi() — it attempts your real endpoint first,
+  and if that fails (404 / network error / no server), falls
+  back to a local simulation so the UI is fully explorable.
+
+  TO WIRE TO YOUR REAL BACKEND:
+  Search for "ADAPT:" comments below — each marks a spot where
+  an endpoint name, payload shape, or response field should be
+  changed to match your actual API contract.
+============================================================= -->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+/* ============================================================
+   0. TOKENS
+============================================================= */
+:root{
+  --bg:            #09090B;
+  --bg-1:          #0c0c10;
+  --card:          rgba(255,255,255,0.06);
+  --card-hover:    rgba(255,255,255,0.09);
+  --card-border:   rgba(255,255,255,0.09);
+  --card-border-hi:rgba(255,255,255,0.16);
+
+  --accent:        #3B82F6;
+  --accent-2:      #8B5CF6;
+  --accent-grad:   linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+
+  --success:       #10B981;
+  --warning:       #F59E0B;
+  --danger:        #EF4444;
+
+  --text:          #FAFAFA;
+  --muted:         #A1A1AA;
+  --muted-2:       #71717A;
+
+  --radius-sm:     10px;
+  --radius-md:     16px;
+  --radius-lg:     22px;
+  --radius-xl:     28px;
+
+  --ease:          cubic-bezier(.16,1,.3,1);
+  --dur-fast:      140ms;
+  --dur-base:      220ms;
+  --dur-slow:      300ms;
+
+  --shadow-soft:   0 8px 30px rgba(0,0,0,0.35);
+  --shadow-lift:   0 16px 50px rgba(0,0,0,0.45);
+  --glow-accent:   0 0 0 1px rgba(59,130,246,0.4), 0 0 24px rgba(59,130,246,0.25);
+
+  --sidebar-w:     300px;
+  --panel-w:       320px;
+  --header-h:      64px;
+}
+
+@media (prefers-color-scheme: light){ :root{ } } /* dark mode only, per brief */
+
+*,*::before,*::after{ box-sizing:border-box; }
+html,body{ height:100%; }
+body{
+  margin:0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+h1,h2,h3,h4{ margin:0; font-weight:700; letter-spacing:-0.02em; }
+p{ margin:0; }
+button{ font-family:inherit; }
+::selection{ background: rgba(59,130,246,0.35); color:#fff; }
+
+a{ color: var(--accent); }
+
+/* Visible focus ring everywhere, kbd-nav friendly */
+:focus-visible{
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================================================
+   1. AMBIENT BACKGROUND — aurora / mesh / noise / stars
+============================================================= */
+.bg-layer{
+  position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events:none;
+  background: radial-gradient(circle at 15% 8%, #0f1420 0%, transparent 45%),
+              radial-gradient(circle at 85% 92%, #150f1f 0%, transparent 45%),
+              var(--bg);
+}
+.blob{
+  position:absolute; border-radius:50%;
+  filter: blur(90px);
+  opacity:0.5;
+  will-change: transform;
+}
+.blob--1{ width:620px; height:620px; top:-220px; left:-160px; background: radial-gradient(circle, rgba(59,130,246,0.55), transparent 70%); animation: float1 26s ease-in-out infinite; }
+.blob--2{ width:520px; height:520px; bottom:-180px; right:-140px; background: radial-gradient(circle, rgba(139,92,246,0.5), transparent 70%); animation: float2 32s ease-in-out infinite; }
+.blob--3{ width:400px; height:400px; top:40%; left:55%; background: radial-gradient(circle, rgba(16,185,129,0.18), transparent 70%); animation: float3 40s ease-in-out infinite; }
+
+@keyframes float1{
+  0%,100%{ transform: translate(0,0) scale(1); }
+  50%{ transform: translate(60px,80px) scale(1.12); }
+}
+@keyframes float2{
+  0%,100%{ transform: translate(0,0) scale(1); }
+  50%{ transform: translate(-70px,-40px) scale(1.08); }
+}
+@keyframes float3{
+  0%,100%{ transform: translate(-50%,-50%) scale(1); opacity:0.5; }
+  50%{ transform: translate(-50%,-50%) scale(1.3); opacity:0.8; }
+}
+
+.bg-noise{
+  position:absolute; inset:0;
+  opacity:0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.bg-stars{
+  position:absolute; inset:0; opacity:0.5;
+  background-image:
+    radial-gradient(1px 1px at 20% 30%, rgba(255,255,255,0.6) 50%, transparent 51%),
+    radial-gradient(1px 1px at 70% 65%, rgba(255,255,255,0.4) 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 40% 80%, rgba(255,255,255,0.35) 50%, transparent 51%),
+    radial-gradient(1px 1px at 85% 15%, rgba(255,255,255,0.5) 50%, transparent 51%),
+    radial-gradient(1px 1px at 55% 45%, rgba(255,255,255,0.3) 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 10% 60%, rgba(255,255,255,0.4) 50%, transparent 51%);
+  background-size: 100% 100%;
+  animation: twinkle 6s ease-in-out infinite;
+}
+@keyframes twinkle{ 0%,100%{opacity:0.35;} 50%{opacity:0.6;} }
+
+/* ============================================================
+   2. GLASS PRIMITIVES
+============================================================= */
+.glass{
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  box-shadow: var(--shadow-soft);
+}
+.glass-hi{
+  background: linear-gradient(180deg, rgba(255,255,255,0.09), rgba(255,255,255,0.03));
+  border: 1px solid var(--card-border-hi);
+  backdrop-filter: blur(28px) saturate(150%);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+}
+
+/* thin glass scrollbars */
+*{ scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.18) transparent; }
+*::-webkit-scrollbar{ width:6px; height:6px; }
+*::-webkit-scrollbar-track{ background: transparent; }
+*::-webkit-scrollbar-thumb{
+  background: rgba(255,255,255,0.16);
+  border-radius: 10px;
+  transition: background var(--dur-base) var(--ease);
+}
+*::-webkit-scrollbar-thumb:hover{ background: rgba(255,255,255,0.32); }
+
+/* ============================================================
+   3. BUTTONS
+============================================================= */
+.btn{
+  position:relative;
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  padding:10px 18px;
+  font-size:14px; font-weight:600; letter-spacing:-0.01em;
+  border-radius: var(--radius-sm);
+  border:1px solid var(--card-border);
+  background: var(--card);
+  color: var(--text);
+  cursor:pointer;
+  overflow:hidden;
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease), background var(--dur-base) var(--ease);
+}
+.btn:hover{ background: var(--card-hover); transform: translateY(-1px); box-shadow: var(--shadow-soft); }
+.btn:active{ transform: translateY(0) scale(0.97); }
+
+.btn--primary{
+  border:1px solid transparent;
+  background: var(--accent-grad);
+  color:#fff;
+  box-shadow: 0 6px 20px rgba(59,130,246,0.35);
+}
+.btn--primary:hover{ box-shadow: 0 8px 28px rgba(59,130,246,0.5); transform: translateY(-1.5px); }
+
+.btn--ghost{ background: transparent; border-color: transparent; }
+.btn--ghost:hover{ background: var(--card); }
+
+.btn--icon{ padding:9px; border-radius:12px; }
+
+.btn--danger-hover:hover{ border-color: rgba(239,68,68,0.4); color:#ff8080; }
+
+/* ripple */
+.btn .ripple{
+  position:absolute; border-radius:50%; transform:scale(0);
+  background: rgba(255,255,255,0.35);
+  animation: ripple 600ms var(--ease);
+  pointer-events:none;
+}
+@keyframes ripple{ to{ transform:scale(3.2); opacity:0; } }
+
+/* gradient-border variant */
+.btn--gradient-border{
+  background: var(--bg-1);
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  position:relative;
+}
+.btn--gradient-border::before{
+  content:''; position:absolute; inset:-1px; border-radius: inherit;
+  padding:1px;
+  background: var(--accent-grad);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  opacity:0.7;
+  z-index:-1;
+}
+
+/* ============================================================
+   4. APP SHELL
+============================================================= */
+#app{
+  position:relative; z-index:1;
+  height:100vh;
+  display:flex;
+  animation: appIn 480ms var(--ease);
+}
+@keyframes appIn{ from{ opacity:0; } to{ opacity:1; } }
+
+/* ---------- SIDEBAR ---------- */
+.sidebar{
+  width: var(--sidebar-w);
+  flex-shrink:0;
+  display:flex; flex-direction:column;
+  padding:16px;
+  gap:14px;
+  border-right:1px solid var(--card-border);
+  overflow-y:auto;
+  transition: transform var(--dur-slow) var(--ease), width var(--dur-slow) var(--ease);
+}
+
+.brand{
+  display:flex; align-items:center; gap:10px;
+  padding:6px 4px 4px;
+}
+.brand-mark{
+  width:32px; height:32px; border-radius:9px;
+  background: var(--accent-grad);
+  display:flex; align-items:center; justify-content:center;
+  box-shadow: 0 4px 16px rgba(59,130,246,0.4);
+  position:relative;
+  flex-shrink:0;
+}
+.brand-mark::after{
+  content:''; position:absolute; inset:0; border-radius:inherit;
+  background: var(--accent-grad); filter: blur(10px); opacity:0.6; z-index:-1;
+}
+.brand-mark svg{ width:18px; height:18px; }
+.brand-name{ font-size:15px; font-weight:700; letter-spacing:-0.01em; }
+.brand-sub{ font-size:11px; color: var(--muted-2); margin-top:1px; }
+
+.new-chat-btn{
+  width:100%; justify-content:flex-start;
+  padding:11px 14px;
+}
+
+.side-card{
+  border-radius: var(--radius-md);
+  padding:14px;
+  animation: cardIn 420ms var(--ease) backwards;
+}
+@keyframes cardIn{ from{ opacity:0; transform: translateY(8px); } to{ opacity:1; transform:translateY(0); } }
+
+.side-card__title{
+  font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em;
+  color: var(--muted-2); margin-bottom:10px;
+  display:flex; align-items:center; gap:6px;
+}
+
+.doc-row{
+  display:flex; align-items:center; gap:10px;
+  margin-bottom:2px;
+}
+.doc-icon{
+  width:38px; height:38px; border-radius:10px; flex-shrink:0;
+  background: linear-gradient(160deg, rgba(239,68,68,0.25), rgba(239,68,68,0.08));
+  border:1px solid rgba(239,68,68,0.25);
+  display:flex; align-items:center; justify-content:center;
+  color:#f87171;
+}
+.doc-icon svg{ width:18px; height:18px; }
+.doc-meta{ min-width:0; }
+.doc-name{ font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.doc-hash{ font-family:'JetBrains Mono', monospace; font-size:10.5px; color: var(--muted-2); margin-top:2px; }
+
+.stat-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+.stat{
+  border-radius:10px; padding:9px 10px;
+  background: rgba(255,255,255,0.03);
+  border:1px solid rgba(255,255,255,0.05);
+}
+.stat-label{ font-size:10px; color: var(--muted-2); text-transform:uppercase; letter-spacing:0.05em; }
+.stat-value{ font-size:14px; font-weight:700; margin-top:2px; font-variant-numeric: tabular-nums; }
+
+.status-line{
+  display:flex; align-items:center; gap:8px;
+  font-size:12.5px; color: var(--muted);
+  padding:6px 0;
+}
+.status-dot{
+  width:7px; height:7px; border-radius:50%;
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(16,185,129,0.18);
+  flex-shrink:0;
+  position:relative;
+}
+.status-dot::after{
+  content:''; position:absolute; inset:-3px; border-radius:50%;
+  border:1px solid var(--success); opacity:0.5;
+  animation: pulseRing 1.8s ease-out infinite;
+}
+@keyframes pulseRing{ 0%{ transform:scale(0.7); opacity:0.6;} 100%{ transform:scale(1.9); opacity:0; } }
+.status-line strong{ color: var(--text); font-weight:600; }
+
+.meta-list{ display:flex; flex-direction:column; gap:9px; }
+.meta-item{ display:flex; align-items:center; justify-content:space-between; font-size:12.5px; }
+.meta-item .k{ color: var(--muted); }
+.meta-item .v{ font-weight:600; font-family:'JetBrains Mono', monospace; font-size:12px; }
+
+.sidebar-footer{ margin-top:auto; padding-top:8px; }
+.delete-session-btn{ width:100%; justify-content:center; font-size:12.5px; color: var(--muted); }
+
+/* ---------- MAIN / CHAT ---------- */
+.main{
+  flex:1; min-width:0;
+  display:flex; flex-direction:column;
+  position:relative;
+}
+
+.topbar{
+  height: var(--header-h); flex-shrink:0;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 20px;
+  border-bottom:1px solid var(--card-border);
+}
+.topbar-left{ display:flex; align-items:center; gap:10px; min-width:0; }
+.topbar-title{ font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.topbar-badge{
+  font-size:11px; font-weight:600; padding:3px 9px; border-radius:20px;
+  background: rgba(16,185,129,0.12); color: var(--success);
+  border:1px solid rgba(16,185,129,0.25);
+  display:flex; align-items:center; gap:5px; flex-shrink:0;
+}
+.topbar-right{ display:flex; align-items:center; gap:8px; }
+.icon-btn{
+  width:36px; height:36px; border-radius:10px;
+  display:flex; align-items:center; justify-content:center;
+  background:transparent; border:1px solid transparent; color: var(--muted);
+  cursor:pointer;
+  transition: all var(--dur-base) var(--ease);
+}
+.icon-btn:hover{ background: var(--card); color: var(--text); border-color: var(--card-border); }
+.icon-btn svg{ width:17px; height:17px; }
+
+/* messages */
+.messages{
+  flex:1; overflow-y:auto;
+  padding: 28px 0 12px;
+  scroll-behavior:smooth;
+}
+.messages-inner{
+  max-width:760px; margin:0 auto; padding:0 24px;
+  display:flex; flex-direction:column; gap:22px;
+}
+
+.msg{ display:flex; gap:12px; max-width:100%; }
+.msg-avatar{
+  width:30px; height:30px; border-radius:9px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+  margin-top:2px;
+}
+.msg-avatar svg{ width:16px; height:16px; }
+
+.msg--user{ flex-direction:row-reverse; animation: slideInRight 380ms var(--ease) backwards; }
+@keyframes slideInRight{ from{ opacity:0; transform: translateX(24px); } to{ opacity:1; transform:translateX(0);} }
+.msg--user .msg-avatar{ background: var(--accent-grad); color:#fff; }
+.msg--user .msg-bubble-col{ align-items:flex-end; }
+.msg--user .bubble{
+  background: linear-gradient(135deg, rgba(59,130,246,0.9), rgba(139,92,246,0.85));
+  color:#fff;
+  border-radius: 18px 18px 4px 18px;
+  border: 1px solid rgba(255,255,255,0.14);
+}
+
+.msg--assistant{ animation: fadeUp 420ms var(--ease) backwards; }
+@keyframes fadeUp{ from{ opacity:0; transform: translateY(10px); } to{ opacity:1; transform:translateY(0); } }
+.msg--assistant .msg-avatar{
+  background: rgba(255,255,255,0.06); border:1px solid var(--card-border); color: var(--accent-2);
+}
+.msg-bubble-col{ display:flex; flex-direction:column; gap:6px; max-width:82%; min-width:0; }
+
+.bubble{
+  padding:13px 16px;
+  border-radius: 18px 18px 18px 4px;
+  background: var(--card);
+  border:1px solid var(--card-border);
+  font-size:14.5px; line-height:1.62;
+  box-shadow: var(--shadow-soft);
+  transition: box-shadow var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease);
+}
+.bubble:hover{ border-color: var(--card-border-hi); }
+
+.bubble p + p{ margin-top:10px; }
+.bubble ul, .bubble ol{ margin:8px 0; padding-left:20px; }
+.bubble li + li{ margin-top:4px; }
+.bubble blockquote{
+  margin:10px 0; padding:2px 14px;
+  border-left:3px solid var(--accent-2);
+  color: var(--muted); font-style:italic;
+}
+.bubble table{ border-collapse:collapse; margin:10px 0; font-size:13px; width:100%; }
+.bubble th, .bubble td{ border:1px solid var(--card-border); padding:6px 10px; text-align:left; }
+.bubble th{ background: rgba(255,255,255,0.04); font-weight:600; }
+.bubble code{
+  font-family:'JetBrains Mono', monospace; font-size:12.8px;
+  background: rgba(255,255,255,0.08); padding:2px 6px; border-radius:5px;
+}
+.bubble pre{
+  margin:10px 0; padding:14px 16px; border-radius:12px;
+  background: #0d0d10; border:1px solid var(--card-border);
+  overflow-x:auto; position:relative;
+}
+.bubble pre code{ background:none; padding:0; font-size:12.8px; line-height:1.6; color:#e4e4e7; }
+.tok-kw{ color:#c792ea; } .tok-str{ color:#a5e844; } .tok-com{ color:#71717a; font-style:italic; } .tok-fn{ color:#82aaff; } .tok-num{ color:#f78c6c; }
+
+.msg-meta{
+  display:flex; align-items:center; gap:10px;
+  font-size:11px; color: var(--muted-2);
+  padding:0 4px;
+}
+.msg--user .msg-meta{ flex-direction:row-reverse; }
+
+.msg-actions{ display:flex; align-items:center; gap:2px; opacity:0; transition: opacity var(--dur-base) var(--ease); }
+.msg:hover .msg-actions{ opacity:1; }
+.msg-action-btn{
+  width:26px; height:26px; border-radius:7px;
+  display:flex; align-items:center; justify-content:center;
+  color: var(--muted-2); background:transparent; border:none; cursor:pointer;
+  transition: all var(--dur-fast) var(--ease);
+}
+.msg-action-btn:hover{ background: var(--card); color: var(--text); }
+.msg-action-btn svg{ width:13px; height:13px; }
+.msg-action-btn.is-active-like{ color: var(--success); }
+.msg-action-btn.is-active-dislike{ color: var(--danger); }
+
+.streaming-cursor{
+  display:inline-block; width:7px; height:15px; margin-left:2px;
+  background: var(--accent-2); border-radius:2px; vertical-align:middle;
+  animation: blink 900ms steps(2) infinite;
+}
+@keyframes blink{ 50%{ opacity:0; } }
+
+/* thinking indicator — waveform */
+.thinking{ display:flex; align-items:center; gap:10px; padding:4px 2px; }
+.thinking-orb{
+  width:30px; height:30px; border-radius:9px; position:relative; flex-shrink:0;
+  background: rgba(255,255,255,0.06); border:1px solid var(--card-border);
+  display:flex; align-items:center; justify-content:center;
+}
+.thinking-orb svg{ width:16px; height:16px; color: var(--accent-2); animation: spin 2.4s linear infinite; }
+@keyframes spin{ to{ transform: rotate(360deg); } }
+.wave{ display:flex; align-items:center; gap:3px; height:16px; }
+.wave span{
+  width:3px; border-radius:2px;
+  background: linear-gradient(180deg, var(--accent), var(--accent-2));
+  animation: wave 1.1s ease-in-out infinite;
+}
+.wave span:nth-child(1){ animation-delay:0ms; }
+.wave span:nth-child(2){ animation-delay:120ms; }
+.wave span:nth-child(3){ animation-delay:240ms; }
+.wave span:nth-child(4){ animation-delay:360ms; }
+.wave span:nth-child(5){ animation-delay:480ms; }
+@keyframes wave{ 0%,100%{ height:5px; opacity:0.5; } 50%{ height:16px; opacity:1; } }
+.thinking-label{ font-size:12.5px; color: var(--muted); }
+
+/* welcome / empty chat state */
+.chat-empty{
+  flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:18px; padding:20px; text-align:center;
+}
+.chat-empty-icon{
+  width:56px; height:56px; border-radius:16px;
+  background: var(--accent-grad); display:flex; align-items:center; justify-content:center;
+  box-shadow: 0 10px 34px rgba(59,130,246,0.35);
+}
+.chat-empty-icon svg{ width:28px; height:28px; color:#fff; }
+.chat-empty h2{ font-size:20px; }
+.chat-empty p{ color: var(--muted); font-size:13.5px; max-width:360px; }
+.suggestion-row{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; max-width:520px; }
+.suggestion-chip{
+  padding:9px 14px; border-radius:12px; font-size:13px;
+  background: var(--card); border:1px solid var(--card-border); cursor:pointer;
+  transition: all var(--dur-base) var(--ease);
+}
+.suggestion-chip:hover{ background: var(--card-hover); border-color: var(--card-border-hi); transform: translateY(-1px); }
+
+/* ---------- COMPOSER ---------- */
+.composer-wrap{ padding:14px 24px 20px; flex-shrink:0; }
+.composer{
+  max-width:760px; margin:0 auto;
+  border-radius: var(--radius-lg);
+  padding:8px 8px 8px 16px;
+  display:flex; align-items:flex-end; gap:8px;
+  transition: box-shadow var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease);
+}
+.composer:focus-within{
+  border-color: rgba(59,130,246,0.45);
+  box-shadow: var(--glow-accent);
+}
+.composer-textarea{
+  flex:1; resize:none; border:none; outline:none; background:transparent;
+  color: var(--text); font-family:inherit; font-size:14.5px; line-height:1.5;
+  max-height:180px; padding:10px 0;
+}
+.composer-textarea::placeholder{ color: var(--muted-2); }
+.composer-actions{ display:flex; align-items:center; gap:4px; padding-bottom:4px; }
+.send-btn{
+  width:38px; height:38px; border-radius:12px; flex-shrink:0;
+  background: var(--accent-grad); color:#fff; border:none; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-base) var(--ease), opacity var(--dur-base) var(--ease);
+  box-shadow: 0 6px 18px rgba(59,130,246,0.4);
+}
+.send-btn:hover:not(:disabled){ transform: scale(1.06); }
+.send-btn:active:not(:disabled){ transform: scale(0.93); }
+.send-btn:disabled{ opacity:0.35; cursor:not-allowed; box-shadow:none; }
+.send-btn svg{ width:16px; height:16px; }
+.composer-hint{
+  max-width:760px; margin:8px auto 0; text-align:center;
+  font-size:11px; color: var(--muted-2);
+}
+.composer-hint kbd{
+  font-family:'JetBrains Mono', monospace; background: rgba(255,255,255,0.06);
+  padding:1px 5px; border-radius:4px; border:1px solid var(--card-border);
+}
+
+/* ---------- RIGHT PANEL ---------- */
+.right-panel{
+  width: var(--panel-w); flex-shrink:0;
+  border-left:1px solid var(--card-border);
+  padding:16px; overflow-y:auto;
+  display:flex; flex-direction:column; gap:14px;
+  transition: transform var(--dur-slow) var(--ease);
+}
+.panel-heading{
+  font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em;
+  color: var(--muted-2); padding:2px 2px 2px;
+}
+.source-card{
+  border-radius: var(--radius-md); padding:12px;
+  animation: cardIn 420ms var(--ease) backwards;
+  cursor:pointer;
+  transition: all var(--dur-base) var(--ease);
+}
+.source-card:hover{ background: var(--card-hover); border-color: var(--card-border-hi); transform: translateY(-1px); }
+.source-card-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.source-page{ font-size:11px; font-weight:700; color: var(--accent); }
+.source-score{ font-size:10px; color: var(--muted-2); font-family:'JetBrains Mono', monospace; }
+.source-snippet{ font-size:12px; color: var(--muted); line-height:1.5; }
+.source-snippet mark{ background: rgba(139,92,246,0.28); color:#fff; border-radius:3px; padding:0 2px; }
+
+.panel-empty{
+  flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  text-align:center; gap:10px; color: var(--muted-2); padding:20px 10px;
+}
+.panel-empty svg{ width:30px; height:30px; opacity:0.5; }
+.panel-empty p{ font-size:12.5px; max-width:200px; }
+
+/* ============================================================
+   5. UPLOAD VIEW
+============================================================= */
+#uploadView{
+  position:relative; z-index:1;
+  height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  padding:32px; gap:36px;
+  animation: appIn 500ms var(--ease);
+}
+.upload-hero{ text-align:center; max-width:520px; animation: heroIn 700ms var(--ease) backwards; }
+@keyframes heroIn{ from{ opacity:0; transform: translateY(14px); } to{ opacity:1; transform:translateY(0);} }
+.upload-hero .eyebrow{
+  display:inline-flex; align-items:center; gap:6px;
+  font-size:12px; font-weight:600; color: var(--accent-2);
+  background: rgba(139,92,246,0.1); border:1px solid rgba(139,92,246,0.25);
+  padding:5px 12px; border-radius:20px; margin-bottom:18px;
+}
+.upload-hero h1{
+  font-size:clamp(30px, 4.4vw, 44px); line-height:1.08;
+  background: linear-gradient(135deg, #fff 30%, #b8c4ff 100%);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.upload-hero p{ margin-top:14px; color: var(--muted); font-size:15.5px; }
+
+.upload-card{
+  width:min(560px, 92vw);
+  border-radius: var(--radius-xl);
+  padding:38px 30px;
+  position:relative; overflow:hidden;
+  display:flex; flex-direction:column; align-items:center; gap:16px;
+  cursor:pointer;
+  animation: heroIn 700ms 80ms var(--ease) backwards;
+  transition: transform var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease);
+}
+.upload-card::before{
+  content:''; position:absolute; inset:-1px; border-radius:inherit; padding:1px;
+  background: conic-gradient(from var(--angle,0deg), rgba(59,130,246,0.5), rgba(139,92,246,0.5), rgba(59,130,246,0.5));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: rotateBorder 5s linear infinite;
+  opacity:0.55;
+}
+@property --angle{ syntax:'<angle>'; inherits:false; initial-value:0deg; }
+@keyframes rotateBorder{ to{ --angle:360deg; } }
+
+.upload-card:hover, .upload-card.is-dragover{
+  transform: translateY(-3px);
+  box-shadow: 0 24px 60px rgba(59,130,246,0.18);
+}
+.upload-card.is-dragover{ background: rgba(59,130,246,0.07); }
+
+.upload-icon-wrap{
+  width:84px; height:84px; border-radius:22px;
+  background: linear-gradient(160deg, rgba(59,130,246,0.18), rgba(139,92,246,0.1));
+  border:1px solid rgba(255,255,255,0.1);
+  display:flex; align-items:center; justify-content:center;
+  animation: floatIcon 4s ease-in-out infinite;
+  position:relative;
+}
+.upload-icon-wrap::after{
+  content:''; position:absolute; inset:-14px; border-radius:30px;
+  background: radial-gradient(circle, rgba(59,130,246,0.25), transparent 70%);
+  filter: blur(6px); z-index:-1;
+}
+@keyframes floatIcon{ 0%,100%{ transform: translateY(0); } 50%{ transform: translateY(-8px); } }
+.upload-icon-wrap svg{ width:38px; height:38px; color: var(--accent); }
+
+.upload-card h3{ font-size:17px; }
+.upload-card .sub{ color: var(--muted); font-size:13px; text-align:center; }
+.upload-card .browse{ color: var(--accent); font-weight:600; }
+.file-input{ display:none; }
+
+.upload-progress-ring{ position:relative; width:64px; height:64px; display:none; }
+.upload-progress-ring svg{ transform: rotate(-90deg); width:64px; height:64px; }
+.upload-progress-ring circle{ fill:none; stroke-width:5; }
+.ring-track{ stroke: rgba(255,255,255,0.08); }
+.ring-fill{ stroke: url(#ringGrad); stroke-linecap:round; transition: stroke-dashoffset 220ms var(--ease); }
+.ring-pct{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font-size:13px; font-weight:700; font-variant-numeric: tabular-nums;
+}
+
+.recent-uploads{ width:min(560px, 92vw); animation: heroIn 700ms 160ms var(--ease) backwards; }
+.recent-uploads h4{ font-size:12px; color: var(--muted-2); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:10px; padding-left:2px; }
+.recent-item{
+  display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px;
+  cursor:pointer; transition: background var(--dur-base) var(--ease);
+}
+.recent-item:hover{ background: var(--card); }
+.recent-item .doc-icon{ width:32px; height:32px; }
+.recent-item-name{ font-size:13px; font-weight:500; }
+.recent-item-date{ font-size:11px; color: var(--muted-2); margin-top:1px; }
+.recent-item-arrow{ margin-left:auto; color: var(--muted-2); }
+
+/* ---------- PIPELINE (upload progress) ---------- */
+#pipelineView{
+  width:min(560px, 92vw);
+  border-radius: var(--radius-xl);
+  padding:32px 28px;
+  animation: heroIn 500ms var(--ease);
+  display:none;
+}
+.pipeline-head{ text-align:center; margin-bottom:26px; }
+.pipeline-head h3{ font-size:17px; }
+.pipeline-head p{ color: var(--muted-2); font-size:12.5px; margin-top:4px; }
+.pipeline-doc{ display:flex; align-items:center; gap:10px; justify-content:center; margin-bottom:22px; }
+
+.stage-list{ display:flex; flex-direction:column; gap:2px; }
+.stage{
+  display:flex; align-items:center; gap:14px; padding:11px 6px;
+  position:relative;
+}
+.stage-connector{
+  position:absolute; left:19px; top:38px; width:2px; height:calc(100% - 6px);
+  background: rgba(255,255,255,0.08); z-index:0;
+}
+.stage:last-child .stage-connector{ display:none; }
+.stage-icon{
+  width:38px; height:38px; border-radius:11px; flex-shrink:0; z-index:1;
+  background: rgba(255,255,255,0.04); border:1px solid var(--card-border);
+  display:flex; align-items:center; justify-content:center;
+  transition: all var(--dur-slow) var(--ease);
+  color: var(--muted-2);
+}
+.stage-icon svg{ width:17px; height:17px; }
+.stage-body{ flex:1; min-width:0; }
+.stage-name{ font-size:13.5px; font-weight:600; color: var(--muted); transition: color var(--dur-base) var(--ease); }
+.stage-desc{ font-size:11.5px; color: var(--muted-2); margin-top:1px; }
+.stage-right{ font-size:11px; color: var(--muted-2); font-variant-numeric: tabular-nums; }
+
+.stage.is-active .stage-icon{
+  background: var(--accent-grad); border-color:transparent; color:#fff;
+  box-shadow: 0 0 0 4px rgba(59,130,246,0.15);
+  animation: stagePulse 1.6s ease-in-out infinite;
+}
+@keyframes stagePulse{ 0%,100%{ box-shadow:0 0 0 4px rgba(59,130,246,0.15);} 50%{ box-shadow:0 0 0 8px rgba(59,130,246,0.06);} }
+.stage.is-active .stage-name{ color: var(--text); }
+.stage.is-active .stage-icon svg{ animation: spin 1.6s linear infinite; }
+
+.stage.is-done .stage-icon{ background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.3); color: var(--success); }
+.stage.is-done .stage-name{ color: var(--text); }
+.stage.is-done .stage-connector{ background: linear-gradient(180deg, var(--success), rgba(16,185,129,0.2)); }
+
+.pipeline-eta{
+  margin-top:22px; text-align:center; font-size:12px; color: var(--muted-2);
+  display:flex; align-items:center; justify-content:center; gap:6px;
+}
+
+/* ============================================================
+   6. RESPONSIVE
+============================================================= */
+.mobile-topbar{ display:none; }
+
+@media (max-width: 1080px){
+  .right-panel{ display:none; }
+}
+
+@media (max-width: 780px){
+  :root{ --sidebar-w: 82vw; }
+  .sidebar{
+    position:fixed; inset:0 auto 0 0; z-index:40;
+    transform: translateX(-100%);
+    box-shadow: var(--shadow-lift);
+  }
+  .sidebar.is-open{ transform: translateX(0); }
+  .sidebar-scrim{
+    position:fixed; inset:0; background: rgba(0,0,0,0.5); z-index:39;
+    opacity:0; pointer-events:none; transition: opacity var(--dur-base) var(--ease);
+  }
+  .sidebar-scrim.is-visible{ opacity:1; pointer-events:auto; }
+  .mobile-topbar{
+    display:flex; align-items:center; gap:10px;
+  }
+  .messages-inner{ padding:0 14px; }
+  .composer-wrap{ padding:10px 12px 16px; }
+  .msg-bubble-col{ max-width:90%; }
+}
+
+/* misc */
+.hidden{ display:none !important; }
+.sr-only{
+  position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+  overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     AMBIENT BACKGROUND
+============================================================= -->
+<div class="bg-layer" aria-hidden="true">
+  <div class="blob blob--1"></div>
+  <div class="blob blob--2"></div>
+  <div class="blob blob--3"></div>
+  <div class="bg-stars"></div>
+  <div class="bg-noise"></div>
+</div>
+
+<!-- ============================================================
+     UPLOAD VIEW
+============================================================= -->
+<div id="uploadView">
+  <div class="upload-hero">
+    <span class="eyebrow">⚡ Retrieval-Augmented Generation</span>
+    <h1>Talk to any PDF</h1>
+    <p>Powered by RAG + Local LLM</p>
+  </div>
+
+  <div class="upload-card glass-hi" id="uploadCard" role="button" tabindex="0" aria-label="Upload a PDF document">
+    <div class="upload-icon-wrap" id="uploadIconWrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="m9 15 3-3 3 3"/></svg>
+    </div>
+    <div class="upload-progress-ring" id="uploadRing">
+      <svg viewBox="0 0 64 64">
+        <defs>
+          <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#3B82F6"/>
+            <stop offset="100%" stop-color="#8B5CF6"/>
+          </linearGradient>
+        </defs>
+        <circle class="ring-track" cx="32" cy="32" r="27"></circle>
+        <circle class="ring-fill" id="ringFill" cx="32" cy="32" r="27" stroke-dasharray="169.6" stroke-dashoffset="169.6"></circle>
+      </svg>
+      <div class="ring-pct" id="ringPct">0%</div>
+    </div>
+    <h3 id="uploadCardTitle">Drop your PDF here</h3>
+    <p class="sub">or <span class="browse">browse files</span> · up to 50MB · PDF only</p>
+    <input type="file" id="fileInput" class="file-input" accept="application/pdf" aria-label="Choose PDF file" />
+  </div>
+
+  <!-- PIPELINE (shown during processing) -->
+  <div id="pipelineView" class="glass-hi">
+    <div class="pipeline-head">
+      <div class="pipeline-doc">
+        <div class="doc-icon" style="width:34px;height:34px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </div>
+        <div>
+          <div class="doc-name" id="pipelineFileName" style="font-size:13.5px;">document.pdf</div>
+          <div class="doc-hash" id="pipelineFileSize">—</div>
+        </div>
+      </div>
+      <h3>Building your knowledge base</h3>
+      <p>This usually takes a few seconds</p>
+    </div>
+
+    <div class="stage-list" id="stageList"><!-- stages injected by JS --></div>
+
+    <div class="pipeline-eta">
+      <span class="wave" style="height:12px;"><span style="width:2px;"></span><span style="width:2px;"></span><span style="width:2px;"></span></span>
+      <span id="etaText">Estimating time remaining…</span>
+    </div>
+  </div>
+
+  <div class="recent-uploads" id="recentUploads">
+    <h4>Recent documents</h4>
+    <div id="recentList"><!-- injected --></div>
+  </div>
+</div>
+
+
+<!-- ============================================================
+     MAIN APP (chat)
+============================================================= -->
+<div id="app" class="hidden">
+
+  <div class="sidebar-scrim" id="sidebarScrim"></div>
+
+  <!-- ---------- SIDEBAR ---------- -->
+  <aside class="sidebar glass" id="sidebar" aria-label="Document and session details">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
+      </div>
+      <div>
+        <div class="brand-name">Docent</div>
+        <div class="brand-sub">RAG Document Intelligence</div>
+      </div>
+    </div>
+
+    <button class="btn btn--gradient-border new-chat-btn" id="newChatBtn">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New chat
+    </button>
+
+    <div class="side-card glass" style="animation-delay:40ms;">
+      <div class="side-card__title">Current document</div>
+      <div class="doc-row">
+        <div class="doc-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </div>
+        <div class="doc-meta">
+          <div class="doc-name" id="sbDocName">—</div>
+          <div class="doc-hash" id="sbDocHash">sha256:—</div>
+        </div>
+      </div>
+      <div class="stat-grid">
+        <div class="stat"><div class="stat-label">Pages</div><div class="stat-value" id="sbPages">—</div></div>
+        <div class="stat"><div class="stat-label">Chunks</div><div class="stat-value" id="sbChunks">—</div></div>
+        <div class="stat"><div class="stat-label">Tokens (est)</div><div class="stat-value" id="sbTokens">—</div></div>
+        <div class="stat"><div class="stat-label">Avg. response</div><div class="stat-value" id="sbRespTime">—</div></div>
+      </div>
+    </div>
+
+    <div class="side-card glass" style="animation-delay:90ms;">
+      <div class="side-card__title">Pipeline status</div>
+      <div class="status-line"><span class="status-dot"></span> Upload <strong style="margin-left:auto;">Complete</strong></div>
+      <div class="status-line"><span class="status-dot"></span> Embeddings <strong style="margin-left:auto;">Ready</strong></div>
+      <div class="status-line"><span class="status-dot"></span> Vector DB <strong style="margin-left:auto;">Indexed</strong></div>
+    </div>
+
+    <div class="side-card glass" style="animation-delay:115ms;">
+      <div class="side-card__title">Chat status</div>
+      <div class="status-line"><span class="status-dot" id="chatStageDot"></span> <strong id="chatStageText" style="margin-left:auto;">Idle</strong></div>
+    </div>
+
+    <div class="side-card glass" style="animation-delay:140ms;">
+      <div class="side-card__title">Model configuration</div>
+      <div class="meta-list">
+        <div class="meta-item"><span class="k">Embedding model</span><span class="v" id="sbEmbedModel">—</span></div>
+        <div class="meta-item"><span class="k">LLM</span><span class="v" id="sbLLM">—</span></div>
+        <div class="meta-item"><span class="k">Rerank model</span><span class="v" id="sbRerankModel">—</span></div>
+        <div class="meta-item"><span class="k">Session ID</span><span class="v" id="sbSessionId">—</span></div>
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <button class="btn btn--danger-hover delete-session-btn" id="deleteSessionBtn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        Delete session
+      </button>
+    </div>
+  </aside>
+
+  <!-- ---------- MAIN / CHAT ---------- -->
+  <main class="main">
+    <header class="topbar glass" style="border-radius:0;">
+      <div class="topbar-left">
+        <button class="icon-btn mobile-topbar" id="openSidebarBtn" aria-label="Open sidebar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <span class="topbar-title" id="topbarTitle">document.pdf</span>
+        <span class="topbar-badge"><span style="width:6px;height:6px;border-radius:50%;background:var(--success);display:inline-block;"></span>Indexed</span>
+      </div>
+      <div class="topbar-right">
+        <span class="topbar-badge" id="backendStatusBadge" title="Backend reachability">
+          <span id="backendStatusDot" style="width:6px;height:6px;border-radius:50%;background:var(--muted-2);display:inline-block;"></span>
+          <span id="backendStatusText">Checking…</span>
+        </span>
+        <button class="icon-btn" id="infoPanelToggleBtn" aria-label="Toggle info panel" title="Toggle info panel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="messages" id="messages">
+      <div class="chat-empty" id="chatEmpty">
+        <div class="chat-empty-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <h2>Ask me anything about this document</h2>
+        <p>I've read every page and indexed it for retrieval. Try one of these, or ask your own question.</p>
+        <div class="suggestion-row" id="suggestionRow">
+          <button class="suggestion-chip">Summarize this document in 5 bullet points</button>
+          <button class="suggestion-chip">What are the key findings?</button>
+          <button class="suggestion-chip">List any numbers or statistics mentioned</button>
+          <button class="suggestion-chip">Explain the methodology section</button>
+        </div>
+      </div>
+      <div class="messages-inner" id="messagesInner"></div>
+    </div>
+
+    <div class="composer-wrap">
+      <div class="composer glass-hi" id="composer">
+        <button class="icon-btn" id="attachBtn" aria-label="Attach file" title="Attach file">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+        </button>
+        <textarea id="composerInput" class="composer-textarea" rows="1" placeholder="Ask about this document…" aria-label="Message input"></textarea>
+        <div class="composer-actions">
+          <button class="icon-btn" id="micBtn" disabled aria-label="Voice input (coming soon)" title="Voice input — coming soon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+          </button>
+          <button class="send-btn" id="sendBtn" disabled aria-label="Send message">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="composer-hint"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for new line</div>
+    </div>
+  </main>
+
+  <!-- ---------- RIGHT PANEL ---------- -->
+  <aside class="right-panel glass" id="rightPanel" aria-label="Retrieved sources">
+    <div class="panel-heading">Retrieved sources</div>
+    <div id="sourcesList" style="display:flex;flex-direction:column;gap:10px;">
+      <div class="panel-empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <p>Sources used to answer your questions will appear here</p>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- message templates (cloned by JS) -->
+<template id="tpl-msg-user">
+  <div class="msg msg--user">
+    <div class="msg-avatar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    </div>
+    <div class="msg-bubble-col">
+      <div class="bubble"></div>
+      <div class="msg-meta"><span class="msg-time"></span></div>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-msg-assistant">
+  <div class="msg msg--assistant">
+    <div class="msg-avatar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
+    </div>
+    <div class="msg-bubble-col">
+      <div class="bubble"></div>
+      <div class="msg-meta">
+        <span class="msg-time"></span>
+        <div class="msg-actions">
+          <button class="msg-action-btn" data-action="copy" title="Copy" aria-label="Copy message">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+          <button class="msg-action-btn" data-action="regenerate" title="Regenerate" aria-label="Regenerate response">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+          </button>
+          <button class="msg-action-btn" data-action="like" title="Good response" aria-label="Like message">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14Z"/></svg>
+          </button>
+          <button class="msg-action-btn" data-action="dislike" title="Bad response" aria-label="Dislike message">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10Z"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-thinking">
+  <div class="msg msg--assistant" id="thinkingMsg">
+    <div class="msg-avatar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg>
+    </div>
+    <div class="msg-bubble-col">
+      <div class="bubble thinking">
+        <div class="thinking-orb">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="m16.24 7.76 2.83-2.83"/><path d="M18 12h4"/><path d="m16.24 16.24 2.83 2.83"/><path d="M12 18v4"/><path d="m4.93 19.07 2.83-2.83"/><path d="M2 12h4"/><path d="m4.93 4.93 2.83 2.83"/></svg>
+        </div>
+        <div class="wave"><span></span><span></span><span></span><span></span><span></span></div>
+        <span class="thinking-label">Searching document…</span>
+      </div>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-source">
+  <div class="source-card glass">
+    <div class="source-card-head">
+      <span class="source-page"></span>
+      <span class="source-score"></span>
+    </div>
+    <p class="source-snippet"></p>
+  </div>
+</template>
+
+<template id="tpl-recent">
+  <div class="recent-item glass">
+    <div class="doc-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+    <div>
+      <div class="recent-item-name"></div>
+      <div class="recent-item-date"></div>
+    </div>
+    <div class="recent-item-arrow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></div>
+  </div>
+</template>
+
+<script>
+/* ============================================================
+   APP LOGIC
+   ------------------------------------------------------------
+   State, endpoints and event flow are organized to mirror a
+   typical RAG-PDF-chatbot backend contract:
+     POST   /api/upload            -> { sessionId }
+     GET    /api/status/:sessionId -> { stage, progress, meta }
+     POST   /api/chat              -> { answer, sources, responseTimeMs }
+     DELETE /api/session/:id       -> { ok }
+
+   ADAPT the ENDPOINTS object + the payload/response field names
+   in each function below to match your real backend exactly.
+============================================================= */
+
+// Base URL of your FastAPI backend (uvicorn main:app --reload runs on 8000 by default).
+// If you later serve index.html FROM the FastAPI app itself (same origin), you can
+// set this to '' and use relative paths instead.
+const API_BASE = 'http://127.0.0.1:8000';
+
+const ENDPOINTS = {
+  health: `${API_BASE}/health`,
+  config: `${API_BASE}/config`,
+  upload: `${API_BASE}/upload`,
+  uploadStatus: (jobId) => `${API_BASE}/upload/status/${jobId}`,
+  chat: `${API_BASE}/chat`,
+  chatStatus: (jobId) => `${API_BASE}/chat/status/${jobId}`,
+  deleteSession: (id) => `${API_BASE}/sessions/${id}`,
+};
+
+const state = {
+  sessionId: null,
+  fileName: null,
+  fileSizeBytes: 0,
+  pages: 0,
+  chunks: 0,
+  tokensEst: 0,
+  embeddingModel: '—',   // filled in from GET /config — never hardcoded
+  llm: '—',              // filled in from GET /config — never hardcoded
+  rerankModel: '—',
+  avgResponseMs: null,
+  messages: [], // {role, content, ts, sources}
+  isStreaming: false,
+  backendReachable: null, // null = unknown yet, true/false once checked
+};
+
+/* ---------- tiny fetch wrapper with graceful demo fallback ---------- */
+async function tryApi(url, options, simulateFn){
+  try{
+    const res = await fetch(url, options);
+    if(!res.ok){
+      let detail = 'Non-200 from ' + url;
+      try{ const body = await res.json(); if(body && body.detail) detail = body.detail; }catch(_){}
+      throw new Error(detail);
+    }
+    return await res.json();
+  }catch(err){
+    console.warn('[demo-mode] falling back to simulation for', url, err.message);
+    if(simulateFn) return await simulateFn();
+    throw err; // no fallback available for this call — let the caller handle it
+  }
+}
+
+/* ---------- real backend reachability dot (top-right) ---------- */
+const backendStatusDot  = document.getElementById('backendStatusDot');
+const backendStatusText = document.getElementById('backendStatusText');
+
+async function checkBackendHealth(){
+  try{
+    const res = await fetch(ENDPOINTS.health);
+    const ok = res.ok;
+    state.backendReachable = ok;
+    backendStatusDot.style.background = ok ? 'var(--success)' : 'var(--danger)';
+    backendStatusText.textContent = ok ? 'Backend online' : 'Backend error';
+  }catch(err){
+    state.backendReachable = false;
+    backendStatusDot.style.background = 'var(--danger)';
+    backendStatusText.textContent = 'Backend unreachable';
+  }
+}
+checkBackendHealth();
+setInterval(checkBackendHealth, 5000);
+
+/* ---------- real model configuration (never hardcoded) ---------- */
+async function loadModelConfig(){
+  try{
+    const res = await fetch(ENDPOINTS.config);
+    if(!res.ok) return;
+    const cfg = await res.json();
+    state.embeddingModel = cfg.embedding_model || '—';
+    state.llm = cfg.llm_model || '—';
+    state.rerankModel = cfg.rerank_model || '—';
+    const embedEl = document.getElementById('sbEmbedModel');
+    const llmEl = document.getElementById('sbLLM');
+    const rerankEl = document.getElementById('sbRerankModel');
+    if(embedEl) embedEl.textContent = state.embeddingModel;
+    if(llmEl) llmEl.textContent = state.llm;
+    if(rerankEl) rerankEl.textContent = state.rerankModel;
+  }catch(err){
+    console.warn('Could not load /config', err.message);
+  }
+}
+loadModelConfig();
+
+/* ============================================================
+   UPLOAD FLOW
+============================================================= */
+const uploadCard   = document.getElementById('uploadCard');
+const fileInput    = document.getElementById('fileInput');
+const uploadIconWrap = document.getElementById('uploadIconWrap');
+const uploadRing    = document.getElementById('uploadRing');
+const ringFill       = document.getElementById('ringFill');
+const ringPct        = document.getElementById('ringPct');
+const uploadCardTitle= document.getElementById('uploadCardTitle');
+const pipelineView   = document.getElementById('pipelineView');
+const stageList      = document.getElementById('stageList');
+const etaText        = document.getElementById('etaText');
+const recentUploads  = document.getElementById('recentUploads');
+
+const RING_CIRC = 169.6;
+
+const STAGES = [
+  { key:'upload',     name:'Upload',            desc:'Transferring file to server', icon: iconUpload() },
+  { key:'extract',    name:'Extract text',      desc:'Reading pages & layout',       icon: iconFile() },
+  { key:'chunk',      name:'Chunking',          desc:'Splitting into passages',      icon: iconLayers() },
+  { key:'embed',      name:'Embeddings',        desc:'Encoding vectors',             icon: iconCpu() },
+  { key:'vectordb',   name:'Vector database',   desc:'Building the index',           icon: iconDatabase() },
+  { key:'ready',      name:'Ready',             desc:'Knowledge base is live',       icon: iconCheck() },
+];
+
+function iconUpload(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>'; }
+function iconFile(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'; }
+function iconLayers(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>'; }
+function iconCpu(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>'; }
+function iconDatabase(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>'; }
+function iconCheck(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'; }
+
+function renderStages(){
+  stageList.innerHTML = STAGES.map(s => `
+    <div class="stage" data-key="${s.key}">
+      <div class="stage-connector"></div>
+      <div class="stage-icon">${s.icon}</div>
+      <div class="stage-body">
+        <div class="stage-name">${s.name}</div>
+        <div class="stage-desc">${s.desc}</div>
+      </div>
+      <div class="stage-right" data-role="stage-status"></div>
+    </div>
+  `).join('');
+}
+renderStages();
+
+function setStageState(key, status /* 'pending'|'active'|'done' */){
+  const el = stageList.querySelector(`.stage[data-key="${key}"]`);
+  if(!el) return;
+  el.classList.remove('is-active','is-done');
+  const statusEl = el.querySelector('[data-role="stage-status"]');
+  if(status === 'active'){ el.classList.add('is-active'); statusEl.textContent = '···'; }
+  if(status === 'done'){ el.classList.add('is-done'); statusEl.textContent = ''; el.querySelector('.stage-icon').innerHTML = iconCheck(); }
+}
+
+function fmtBytes(bytes){
+  if(!bytes) return '—';
+  const units = ['B','KB','MB','GB'];
+  let i = 0, n = bytes;
+  while(n >= 1024 && i < units.length-1){ n/=1024; i++; }
+  return `${n.toFixed(n < 10 && i>0 ? 1 : 0)} ${units[i]}`;
+}
+
+/* drag & drop + click-to-browse */
+['dragenter','dragover'].forEach(evt => uploadCard.addEventListener(evt, e => {
+  e.preventDefault(); uploadCard.classList.add('is-dragover');
+}));
+['dragleave','drop'].forEach(evt => uploadCard.addEventListener(evt, e => {
+  e.preventDefault(); uploadCard.classList.remove('is-dragover');
+}));
+uploadCard.addEventListener('drop', e => {
+  const file = e.dataTransfer.files[0];
+  if(file) handleFileSelected(file);
+});
+uploadCard.addEventListener('click', () => fileInput.click());
+uploadCard.addEventListener('keydown', e => { if(e.key === 'Enter' || e.key === ' '){ e.preventDefault(); fileInput.click(); } });
+fileInput.addEventListener('change', () => { if(fileInput.files[0]) handleFileSelected(fileInput.files[0]); });
+
+async function handleFileSelected(file){
+  if(file.type !== 'application/pdf'){
+    uploadCardTitle.textContent = 'Please choose a PDF file';
+    uploadCardTitle.style.color = 'var(--danger)';
+    setTimeout(() => { uploadCardTitle.style.color=''; uploadCardTitle.textContent='Drop your PDF here'; }, 1800);
+    return;
+  }
+
+  state.fileName = file.name;
+  state.fileSizeBytes = file.size;
+
+  // swap icon for progress ring
+  uploadIconWrap.style.display = 'none';
+  uploadRing.style.display = 'block';
+  uploadCardTitle.textContent = 'Uploading…';
+  recentUploads.classList.add('hidden');
+  setUploadProgress(0);
+
+  const formData = new FormData();
+  formData.append('file', file); // matches FastAPI's `file: UploadFile = File(...)`
+
+  const result = await tryApi(ENDPOINTS.upload, { method:'POST', body: formData },
+    () => simulateUpload(file)
+  );
+
+  setUploadProgress(100); // the file transfer itself is done; real processing progress takes over in the pipeline view
+
+  if (result && result.job_id) {
+    // Real backend: /upload returned immediately, actual parsing/chunking/
+    // embedding/storing happens on a background thread. Poll for real progress.
+    pollUploadJob(result.job_id, file);
+  } else if (result && result.sessionId) {
+    // Offline/demo fallback path — simulateUpload() already drove
+    // beginDemoPipeline()/enterApp() itself.
+  } else if (result && result.error) {
+    uploadCardTitle.textContent = 'Upload failed — ' + result.error;
+    uploadCardTitle.style.color = 'var(--danger)';
+  } else {
+    uploadCardTitle.textContent = 'Upload failed — unexpected response from server';
+    uploadCardTitle.style.color = 'var(--danger)';
+  }
+}
+
+/* demo/offline fallback only — used when the real backend is unreachable */
+function simulateUpload(file){
+  return new Promise(resolve => {
+    let pct = 0;
+    const timer = setInterval(() => {
+      pct += Math.random()*18 + 6;
+      if(pct >= 100){
+        pct = 100;
+        clearInterval(timer);
+        setUploadProgress(100);
+        setTimeout(() => { beginDemoPipeline(file); resolve({ sessionId: 'demo-session-' + Date.now() }); }, 260);
+      } else {
+        setUploadProgress(pct);
+      }
+    }, 180);
+  });
+}
+
+function setUploadProgress(pct){
+  const offset = RING_CIRC - (RING_CIRC * pct/100);
+  ringFill.style.strokeDashoffset = offset;
+  ringPct.textContent = Math.round(pct) + '%';
+}
+
+/* ---------- REAL pipeline progress, driven by polling the backend ---------- */
+const STAGE_MAP = {
+  queued: 'upload',
+  parsing: 'extract',
+  chunking: 'chunk',
+  embedding: 'embed',
+  storing: 'vectordb',
+  done: 'ready',
+};
+const STAGE_ORDER = ['upload','extract','chunk','embed','vectordb','ready'];
+
+function showPipelineView(file){
+  uploadCard.style.display = 'none';
+  pipelineView.style.display = 'block';
+  document.getElementById('pipelineFileName').textContent = file.name;
+  document.getElementById('pipelineFileSize').textContent = fmtBytes(file.size);
+  setStageState('upload', 'done');
+}
+
+function applyStageProgress(stageKey){
+  const idx = STAGE_ORDER.indexOf(stageKey);
+  if(idx === -1) return;
+  STAGE_ORDER.forEach((key, i) => {
+    if(i < idx) setStageState(key, 'done');
+    else if(i === idx) setStageState(key, 'active');
+  });
+}
+
+async function pollUploadJob(jobId, file){
+  showPipelineView(file);
+
+  while(true){
+    let job;
+    try{
+      const res = await fetch(ENDPOINTS.uploadStatus(jobId));
+      job = await res.json();
+    }catch(err){
+      etaText.textContent = 'Lost connection to backend — retrying…';
+      await new Promise(r => setTimeout(r, 700));
+      continue;
+    }
+
+    applyStageProgress(STAGE_MAP[job.stage] || 'upload');
+    etaText.textContent = job.message || '';
+
+    if(job.stage === 'done'){
+      STAGE_ORDER.forEach(key => setStageState(key, 'done'));
+      const r = job.result || {};
+      state.sessionId = r.session_id;
+      state.pages = r.pages || 0;
+      state.chunks = r.chunks || 0;
+      state.tokensEst = state.chunks * 180; // rough estimate — backend doesn't tokenize, this stays an estimate
+      setTimeout(enterApp, 400);
+      return;
+    }
+    if(job.stage === 'error'){
+      etaText.textContent = 'Failed: ' + (job.error || 'unknown error');
+      return;
+    }
+    await new Promise(r => setTimeout(r, 400));
+  }
+}
+
+/* ---------- demo/offline-only fake pipeline (used solely by simulateUpload) ---------- */
+function beginDemoPipeline(file){
+  showPipelineView(file);
+  state.sessionId = 'demo-session-' + Date.now(); // demo mode never had a real backend session — give it a stand-in id
+  const order = STAGE_ORDER;
+  let i = 1;
+
+  function next(){
+    if(i >= order.length){
+      etaText.textContent = 'Knowledge base ready (demo mode — backend unreachable)';
+      setTimeout(enterApp, 500);
+      return;
+    }
+    const key = order[i];
+    setStageState(key, 'active');
+    etaText.textContent = `Demo mode — about ${(order.length - i)}s remaining…`;
+    setTimeout(() => { setStageState(key, 'done'); i++; next(); }, key === 'embed' ? 1100 : 700);
+  }
+  next();
+
+  state.pages = Math.floor(Math.random()*40)+8;
+  state.chunks = Math.floor(state.pages * (Math.random()*3+2));
+  state.tokensEst = state.chunks * 180;
+}
+
+/* ============================================================
+   ENTER MAIN APP
+============================================================= */
+function enterApp(){
+  document.getElementById('uploadView').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+
+  document.getElementById('sbDocName').textContent = state.fileName || 'document.pdf';
+  document.getElementById('sbDocHash').textContent = 'sha256:' + pseudoHash(state.fileName || 'doc');
+  document.getElementById('sbPages').textContent = state.pages || '—';
+  document.getElementById('sbChunks').textContent = state.chunks || '—';
+  document.getElementById('sbTokens').textContent = state.tokensEst ? formatK(state.tokensEst) : '—';
+  document.getElementById('sbRespTime').textContent = '—';
+  document.getElementById('sbEmbedModel').textContent = state.embeddingModel;
+  document.getElementById('sbLLM').textContent = state.llm;
+  document.getElementById('sbSessionId').textContent = (state.sessionId || 'demo-session').slice(0,14) + '…';
+  document.getElementById('topbarTitle').textContent = state.fileName || 'document.pdf';
+
+  composerInput.focus();
+}
+
+function pseudoHash(str){
+  let h = 0;
+  for(let i=0;i<str.length;i++){ h = (h*31 + str.charCodeAt(i)) >>> 0; }
+  return h.toString(16).padStart(8,'0') + 'ab12cd34';
+}
+function formatK(n){ return n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n); }
+
+/* ============================================================
+   CHAT
+============================================================= */
+const messagesEl      = document.getElementById('messages');
+const messagesInner   = document.getElementById('messagesInner');
+const chatEmpty       = document.getElementById('chatEmpty');
+const composerInput   = document.getElementById('composerInput');
+const sendBtn         = document.getElementById('sendBtn');
+const suggestionRow   = document.getElementById('suggestionRow');
+const sourcesList     = document.getElementById('sourcesList');
+
+composerInput.addEventListener('input', () => {
+  sendBtn.disabled = composerInput.value.trim().length === 0;
+  composerInput.style.height = 'auto';
+  composerInput.style.height = Math.min(composerInput.scrollHeight, 180) + 'px';
+});
+composerInput.addEventListener('keydown', e => {
+  if(e.key === 'Enter' && !e.shiftKey){
+    e.preventDefault();
+    if(!sendBtn.disabled) sendMessage(composerInput.value.trim());
+  }
+});
+sendBtn.addEventListener('click', () => {
+  if(!sendBtn.disabled) sendMessage(composerInput.value.trim());
+});
+suggestionRow.addEventListener('click', e => {
+  const chip = e.target.closest('.suggestion-chip');
+  if(chip) sendMessage(chip.textContent);
+});
+
+function nowLabel(){
+  return new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+}
+
+function appendUserMessage(text){
+  chatEmpty.classList.add('hidden');
+  const tpl = document.getElementById('tpl-msg-user').content.cloneNode(true);
+  tpl.querySelector('.bubble').textContent = text;
+  tpl.querySelector('.msg-time').textContent = nowLabel();
+  messagesInner.appendChild(tpl);
+  scrollToBottom();
+}
+
+function appendThinking(){
+  const tpl = document.getElementById('tpl-thinking').content.cloneNode(true);
+  messagesInner.appendChild(tpl);
+  scrollToBottom();
+}
+function removeThinking(){
+  const el = document.getElementById('thinkingMsg');
+  if(el) el.remove();
+}
+
+function appendAssistantMessage(){
+  const tpl = document.getElementById('tpl-msg-assistant').content.cloneNode(true);
+  const wrapper = tpl.querySelector('.msg');
+  messagesInner.appendChild(tpl);
+  const node = messagesInner.lastElementChild;
+  node.querySelector('.msg-time').textContent = nowLabel();
+  bindMessageActions(node);
+  return node;
+}
+
+function bindMessageActions(node){
+  node.querySelectorAll('.msg-action-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const action = btn.dataset.action;
+      const bubble = node.querySelector('.bubble');
+      if(action === 'copy'){
+        navigator.clipboard?.writeText(bubble.innerText).catch(()=>{});
+        const original = btn.innerHTML;
+        btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+        setTimeout(() => btn.innerHTML = original, 1200);
+      }
+      if(action === 'like'){ btn.classList.toggle('is-active-like'); node.querySelector('[data-action="dislike"]').classList.remove('is-active-dislike'); }
+      if(action === 'dislike'){ btn.classList.toggle('is-active-dislike'); node.querySelector('[data-action="like"]').classList.remove('is-active-like'); }
+      if(action === 'regenerate'){ regenerateMessage(node); }
+    });
+  });
+}
+
+/* very small markdown renderer: fenced code, bold, italics, lists, inline code, blockquote */
+function renderMarkdown(md){
+  let html = md
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  // fenced code blocks
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (m, lang, code) => {
+    return `<pre><code>${highlightCode(code.trim())}</code></pre>`;
+  });
+  // inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // bold / italics
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // blockquote
+  html = html.replace(/^&gt; (.*)$/gm, '<blockquote>$1</blockquote>');
+  // unordered lists
+  html = html.replace(/(^|\n)([-*] .*(\n[-*] .*)*)/g, (m, lead, block) => {
+    const items = block.split('\n').map(l => `<li>${l.replace(/^[-*]\s/, '')}</li>`).join('');
+    return `${lead}<ul>${items}</ul>`;
+  });
+  // paragraphs
+  html = html.split(/\n{2,}/).map(chunk => {
+    if(/^<(ul|pre|blockquote)/.test(chunk.trim())) return chunk;
+    return `<p>${chunk.replace(/\n/g,'<br>')}</p>`;
+  }).join('');
+
+  return html;
+}
+function highlightCode(code){
+  return code
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\b(function|const|let|var|return|import|from|export|class|if|else|for|while|await|async|def|print)\b/g, '<span class="tok-kw">$1</span>')
+    .replace(/(&quot;.*?&quot;|'.*?'|"[^"]*")/g, '<span class="tok-str">$1</span>')
+    .replace(/(\/\/.*$)/gm, '<span class="tok-com">$1</span>')
+    .replace(/\b(\d+)\b/g, '<span class="tok-num">$1</span>');
+}
+
+function scrollToBottom(){
+  requestAnimationFrame(() => { messagesEl.scrollTop = messagesEl.scrollHeight; });
+}
+
+/* ---------- send / receive ---------- */
+/* ---------- real chat pipeline status (routing/branching/retrieving/reranking/answering) ---------- */
+const CHAT_STAGE_LABELS = {
+  idle: 'Idle',
+  queued: 'Queued',
+  routing: 'Routing query',
+  branching: 'Generating sub-queries',
+  retrieving: 'Retrieving documents',
+  reranking: 'Reranking results',
+  answering: 'Model answering',
+  done: 'Done',
+  error: 'Error',
+};
+
+function setChatStage(stageKey, message){
+  const dot = document.getElementById('chatStageDot');
+  const text = document.getElementById('chatStageText');
+  if(!dot || !text) return;
+  const label = CHAT_STAGE_LABELS[stageKey] || stageKey || 'Idle';
+  text.textContent = message ? `${label} — ${message}` : label;
+  dot.style.background = stageKey === 'error' ? 'var(--danger)'
+    : (stageKey === 'done' || stageKey === 'idle') ? 'var(--success)'
+    : 'var(--accent)';
+}
+
+async function pollChatJob(jobId){
+  while(true){
+    let job;
+    try{
+      const res = await fetch(ENDPOINTS.chatStatus(jobId));
+      job = await res.json();
+    }catch(err){
+      setChatStage('error', 'lost connection, retrying…');
+      await new Promise(r => setTimeout(r, 700));
+      continue;
+    }
+
+    setChatStage(job.stage, job.message);
+
+    if(job.stage === 'done') return job.result || {};
+    if(job.stage === 'error') return { answer: 'Error: ' + (job.error || 'unknown error'), sources: [] };
+
+    await new Promise(r => setTimeout(r, 300));
+  }
+}
+
+async function sendMessage(text){
+  if(!text || state.isStreaming) return;
+  composerInput.value = '';
+  composerInput.style.height = 'auto';
+  sendBtn.disabled = true;
+  state.isStreaming = true;
+
+  appendUserMessage(text);
+  state.messages.push({ role:'user', content:text, ts:Date.now() });
+  appendThinking();
+  setChatStage('queued');
+
+  const t0 = performance.now();
+
+  const payload = { session_id: state.sessionId, message: text }; // matches FastAPI's ChatRequest
+  const initial = await tryApi(ENDPOINTS.chat, {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify(payload)
+  }, () => simulateAnswer(text));
+
+  // Real backend: /chat returned {job_id} immediately — poll for real stages.
+  // Demo/offline fallback: simulateAnswer() already returns {answer, sources} directly.
+  const finalResult = (initial && initial.job_id) ? await pollChatJob(initial.job_id) : initial;
+
+  const elapsedMs = Math.round(performance.now() - t0);
+  removeThinking();
+  setChatStage('done');
+
+  const answerNode = appendAssistantMessage();
+  const answerText = (finalResult && finalResult.answer) || 'Sorry, something went wrong generating a response.';
+  await streamIntoBubble(answerNode.querySelector('.bubble'), answerText);
+
+  document.getElementById('sbRespTime').textContent = elapsedMs < 1000 ? elapsedMs+'ms' : (elapsedMs/1000).toFixed(1)+'s';
+  renderSources((finalResult && finalResult.sources) || []);
+
+  state.messages.push({ role:'assistant', content:answerText, ts:Date.now(), sources: finalResult && finalResult.sources });
+  state.isStreaming = false;
+  sendBtn.disabled = composerInput.value.trim().length === 0;
+
+  setTimeout(() => setChatStage('idle'), 1500);
+}
+
+function regenerateMessage(node){
+  // ADAPT: call your regenerate endpoint / resend last user message with a "regenerate" flag
+  const lastUser = [...state.messages].reverse().find(m => m.role === 'user');
+  if(!lastUser) return;
+  const bubble = node.querySelector('.bubble');
+  bubble.innerHTML = '';
+  state.isStreaming = true;
+  simulateAnswer(lastUser.content + ' (regenerated)').then(async res => {
+    await streamIntoBubble(bubble, res.answer);
+    renderSources(res.sources || []);
+    state.isStreaming = false;
+  });
+}
+
+async function streamIntoBubble(bubbleEl, fullText){
+  // If your backend supports SSE/streaming, replace this with a real
+  // ReadableStream reader that appends tokens as they arrive.
+  const cursor = document.createElement('span');
+  cursor.className = 'streaming-cursor';
+  bubbleEl.appendChild(cursor);
+
+  const words = fullText.split(' ');
+  let acc = '';
+  for(let i=0;i<words.length;i++){
+    acc += (i>0?' ':'') + words[i];
+    bubbleEl.innerHTML = renderMarkdown(acc);
+    bubbleEl.appendChild(cursor);
+    scrollToBottom();
+    await new Promise(r => setTimeout(r, 14 + Math.random()*22));
+  }
+  cursor.remove();
+  bubbleEl.innerHTML = renderMarkdown(fullText);
+}
+
+function renderSources(sources){
+  if(!sources.length){
+    sourcesList.innerHTML = `
+      <div class="panel-empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <p>No sources retrieved for this answer</p>
+      </div>`;
+    return;
+  }
+  sourcesList.innerHTML = '';
+  sources.forEach((s, idx) => {
+    const tpl = document.getElementById('tpl-source').content.cloneNode(true);
+    tpl.querySelector('.source-card').style.animationDelay = (idx*50)+'ms';
+    tpl.querySelector('.source-page').textContent = `Page ${s.page ?? '—'}`;
+    tpl.querySelector('.source-score').textContent = s.score ? `${(s.score*100).toFixed(0)}% match` : '';
+    tpl.querySelector('.source-snippet').innerHTML = s.snippet || '';
+    sourcesList.appendChild(tpl);
+  });
+}
+
+/* ---------- demo simulation (used only when no backend responds) ---------- */
+async function simulateAnswer(question){
+  await new Promise(r => setTimeout(r, 900 + Math.random()*700));
+  const answer =
+`Based on the document, here's what I found regarding "*${question.slice(0,60)}${question.length>60?'…':''}*":
+
+The relevant section explains the core concept in detail, citing supporting data across **pages 4–7**. Here's a quick breakdown:
+
+- The primary finding is clearly stated in the introduction
+- Supporting evidence appears in the results table
+- A caveat is noted about the sample size
+
+\`\`\`python
+# example referenced in the appendix
+def summarize(chunks):
+    return " ".join(c.text for c in chunks[:3])
+\`\`\`
+
+Let me know if you'd like me to go deeper on any of these points.`;
+
+  return {
+    answer,
+    sources: [
+      { page: 4, score: 0.91, snippet: 'This section introduces the <mark>core methodology</mark> used throughout the study…' },
+      { page: 6, score: 0.84, snippet: 'Results indicate a statistically significant <mark>improvement</mark> over baseline…' },
+      { page: 7, score: 0.77, snippet: 'The authors note a limitation regarding <mark>sample size</mark> and generalizability…' },
+    ]
+  };
+}
+
+/* ============================================================
+   SIDEBAR / SESSION CONTROLS
+============================================================= */
+document.getElementById('newChatBtn').addEventListener('click', () => {
+  messagesInner.innerHTML = '';
+  chatEmpty.classList.remove('hidden');
+  sourcesList.innerHTML = `
+    <div class="panel-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <p>Sources used to answer your questions will appear here</p>
+    </div>`;
+  state.messages = [];
+});
+
+document.getElementById('deleteSessionBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('deleteSessionBtn');
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = 'Deleting…';
+
+  await tryApi(ENDPOINTS.deleteSession(state.sessionId), { method:'DELETE' }, async () => ({ ok:true }));
+
+  // reset to upload view
+  document.getElementById('app').classList.add('hidden');
+  const uv = document.getElementById('uploadView');
+  uv.classList.remove('hidden');
+  uploadCard.style.display = 'flex';
+  pipelineView.style.display = 'none';
+  uploadRing.style.display = 'none';
+  uploadIconWrap.style.display = 'flex';
+  setUploadProgress(0);
+  uploadCardTitle.textContent = 'Drop your PDF here';
+  recentUploads.classList.remove('hidden');
+  fileInput.value = '';
+  btn.disabled = false;
+  btn.innerHTML = original;
+
+  addRecentUpload(state.fileName, state.fileSizeBytes);
+  Object.assign(state, { sessionId:null, fileName:null, messages:[] });
+});
+
+/* mobile sidebar toggle */
+const sidebar = document.getElementById('sidebar');
+const scrim = document.getElementById('sidebarScrim');
+document.getElementById('openSidebarBtn')?.addEventListener('click', () => {
+  sidebar.classList.add('is-open'); scrim.classList.add('is-visible');
+});
+scrim.addEventListener('click', () => {
+  sidebar.classList.remove('is-open'); scrim.classList.remove('is-visible');
+});
+
+/* right panel toggle (desktop convenience) */
+document.getElementById('infoPanelToggleBtn').addEventListener('click', () => {
+  const rp = document.getElementById('rightPanel');
+  rp.style.display = rp.style.display === 'none' ? 'flex' : 'none';
+});
+
+/* ---------- recent uploads (local demo memory only) ---------- */
+const recentList = document.getElementById('recentList');
+function addRecentUpload(name, size){
+  if(!name) return;
+  const tpl = document.getElementById('tpl-recent').content.cloneNode(true);
+  tpl.querySelector('.recent-item-name').textContent = name;
+  tpl.querySelector('.recent-item-date').textContent = 'Just now · ' + fmtBytes(size);
+  recentList.prepend(tpl);
+  // ADAPT: clicking a recent item should call GET /api/session/:id and re-enter app with that session
+}
+
+/* ---------- button ripple micro-interaction ---------- */
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.btn, .icon-btn, .send-btn, .suggestion-chip');
+  if(!btn) return;
+  const rect = btn.getBoundingClientRect();
+  const ripple = document.createElement('span');
+  ripple.className = 'ripple';
+  const size = Math.max(rect.width, rect.height);
+  ripple.style.width = ripple.style.height = size + 'px';
+  ripple.style.left = (e.clientX - rect.left - size/2) + 'px';
+  ripple.style.top = (e.clientY - rect.top - size/2) + 'px';
+  btn.style.position = btn.style.position || 'relative';
+  btn.style.overflow = 'hidden';
+  btn.appendChild(ripple);
+  setTimeout(() => ripple.remove(), 650);
+});
+</script>
+</body>
+</html>
